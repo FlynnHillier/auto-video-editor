@@ -18,9 +18,9 @@ blessed==1.20.0
 certifi==2023.7.22
 cffi==1.15.1
 charset-normalizer==3.2.0
-click @ file:///D:/bld/click_1689752086644/work
+click @ file:///C:/ci/click_1646056762388/work
 cmaes==0.10.0
-colorama @ file:///home/conda/feedstock_root/build_artifacts/colorama_1666700638685/work
+colorama @ file:///C:/b/abs_a9ozq0l032/croot/colorama_1672387194846/work
 coloredlogs==15.0.1
 colorlog==6.7.0
 contourpy==1.1.0
@@ -81,7 +81,7 @@ numba==0.57.1
 numpy==1.24.4
 omegaconf==2.3.0
 onnxruntime==1.15.1
-opencv-python==4.8.0
+opencv-python==4.8.0.76
 optuna==3.3.0
 ordered-set==4.1.0
 packaging==23.1

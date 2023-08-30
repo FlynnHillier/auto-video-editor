@@ -1,12 +1,53 @@
 """Identification of individuals"""
+from __future__ import annotations
 
 import face_recognition
 import json
 import numpy
 from pathlib import Path
 
+from faces import get_all_faces
+import cv2
+
 from typing import Tuple
 from numpy.typing import NDArray
+
+
+
+## Utility
+
+def _NDArray_list_to_list_list(NDArray_list:list[NDArray]) -> list[list]:
+    """convert a list of NDArrays to a list of lists
+
+    Args:
+        NDArray_list (list[NDArray]): a list of numpy arrays to be converted to a list of lists
+
+    Returns:
+        list[list]: the converted list of lists
+    """
+    out = []
+    for NDArray in NDArray_list:
+        out.append(NDArray.tolist())
+
+    return out
+
+def _list_list_to_NDArray_list(list_list:list[list]) -> list[NDArray]:
+        """convert a list of lists to a list of NDArrays
+
+        Args:
+            list_of_lists (list[list]): a list of lists to be converted to a list of numpy arrays
+
+        Returns:
+            list[NDArray]: the converted list of NDArrays
+        """
+        out = []
+        for _list in list_list:
+            out.append(numpy.array(_list))
+
+        return out
+
+
+
 
 
 
@@ -135,8 +176,8 @@ class Profile:
 
         _dict = {
             "id":self.id,
-            "face_encoding_tolerance":self.face_encoding_tolerance,
-            "face_encodings":self._NDArray_list_to_list_list(self.face_encodings),
+            "face_encoding_tolerance":self.add_face_encoding_default_tolerance,
+            "face_encodings":_NDArray_list_to_list_list(self.face_encodings),
         }
 
         with open(target_filepath,"w+") as f:
@@ -147,10 +188,9 @@ class Profile:
 
 
 
-    def _load_from_file(self,
+    def load_from_file(
         filepath:str,
-        raise_exception: bool = True,
-    ) -> bool:
+    ) -> Profile:
         """load a saved profile from disk
 
         Args:
@@ -161,28 +201,21 @@ class Profile:
             FileNotFoundError: If the target JSON cannot be found.
             Exception: invalid file extension (expects '.json')
             KeyError: an expected key within the JSON file is not present.
-            TypeError: _description_
+            TypeError: a key was provided within the JSON file, but was of the incorrect type.
 
         Returns:
-            bool: _description_
+            Profile: the loaded Profile instance.
         """
 
         if not Path(filepath).exists():
             #filepath does not exist
-            if raise_exception:
-                raise FileNotFoundError(str(Path(filepath)))
-            else:
-                return False
-        
+            raise FileNotFoundError(str(Path(filepath)))
 
-        
+
         if Path(filepath).suffix != ".json":
             #file does not possess correct file extension
-            if raise_exception:
-                raise Exception(f"invalid file extension {Path(filepath).suffix} , expected '.json'")
-            else:
-                return False
-        
+            raise Exception(f"invalid file extension {Path(filepath).suffix} , expected '.json'")
+  
 
         ## read json
 
@@ -201,10 +234,7 @@ class Profile:
 
         for expected_key in expected_keys:
             if expected_key not in data.keys():
-                if raise_exception:
-                    raise KeyError(f"json located at '{filepath}' is missing expected key: '{expected_key}'")
-                else:
-                    return False
+                raise KeyError(f"json located at '{filepath}' is missing expected key: '{expected_key}'")
                 
 
         ## check json values are of the expected type
@@ -220,49 +250,150 @@ class Profile:
             actual_type = type(data[expected_type_key])
             
             if actual_type != expected_type:
-                if raise_exception:
-                    raise TypeError(f"key '{expected_type_key}' expected to be of type '{expected_type}' , recieved type '{actual_type}'")
-                else:
-                    return False
+                raise TypeError(f"key '{expected_type_key}' expected to be of type '{expected_type}' , recieved type '{actual_type}'")
                 
         
         ##assign the values
 
-        self.id = data["id"]
-        self.add_face_encoding_default_tolerance = data["add_face_encoding_default_tolerance"]
-
-        #convert face encodings to NDArray
-        self.face_encodings =  self._list_list_to_NDArray_list(data["face_encodings"])
-                
-        return True
-
-
-    def _NDArray_list_to_list_list(self,NDArray_list:list[NDArray]) -> list[list]:
-        """convert a list of NDArrays to a list of lists
-
-        Args:
-            NDArray_list (list[NDArray]): a list of numpy arrays to be converted to a list of lists
-
-        Returns:
-            list[list]: the converted list of lists
-        """
-        out = []
-        for NDArray in NDArray_list:
-            out.append(NDArray.tolist())
-
-        return out
+        return Profile(
+            id=data["id"],
+            add_face_encoding_default_tolerance=data["add_face_encoding_default_tolerance"],
+            face_encodings=_list_list_to_NDArray_list(data["face_encodings"])
+        )
     
-    def _list_list_to_NDArray_list(self,list_list:list[list]) -> list[NDArray]:
-        """convert a list of lists to a list of NDArrays
 
-        Args:
-            list_of_lists (list[list]): a list of lists to be converted to a list of numpy arrays
 
-        Returns:
-            list[NDArray]: the converted list of NDArrays
-        """
-        out = []
-        for _list in list_list:
-            out.append(numpy.array(_list))
+def build_profiles_from_video(
+    video_fp:str,
+    profile_directory:str | None = None,
+    save_profiles:bool = False,
+    time_step: int = 1,
+    prompt_on_existing_profile: bool = False,
+    overwrite_profile_by_default: bool = False,
+) -> list[Profile]:
+    """build multiple profiles easily from an inputted video
 
-        return out
+    Args:
+        video_fp (str): the video filepath which contains people from which the profiles are to be generated.
+        profile_directory (str | None, optional): If provided, provides the ability to append details to existing profiles with the same id. Defaults to None.
+        save_profiles (bool, optional): save the generated profiles to a directory. Will use profile_directory if provided, else will prompt user. Defaults to False.
+        time_step (int, optional): the amount of time between face-scans when reading the video. Defaults to 1.
+        prompt_on_existing_profile (bool, optional): if reading profiles from an existing profile directory, ask the user wether to overwrite/append to a profile when it already exists. Defaults to False.
+        overwrite_profile_by_default (bool, optional): if prompts are disabled, describes the default behaviour when existing profile is found. Defaults to False.
+
+    Raises:
+        FileNotFoundError: The specified proifile_directory could not be found.
+
+    Returns:
+        list[Profile]: the list of generated profiles
+    """    
+
+    if profile_directory != None:
+        if not Path(profile_directory).exists():
+            #existing profile directory does not exist
+            raise FileNotFoundError(str(Path(profile_directory)))
+
+
+    print("fetching faces")
+    face_encodings, face_images = get_all_faces(video_filepath=video_fp,time_step=time_step)
+    print("faces fetched.")
+
+
+    profiles : list[Profile] = []
+
+    for i,face_encoding in enumerate(face_encodings):
+        face_image = face_images[i]
+
+        ##show user image and ask for id
+        cv2.imshow(f"{i}",face_image)
+        cv2.waitKey(1)
+        id = input("who is this? (leave blank to skip)\n> ")
+        cv2.destroyWindow(f"{i}")
+        
+        if id == "":
+            #user skipped face
+            continue
+        
+        instantiated = False
+        
+        if profile_directory != None:
+            #search for existing profile in specified profile directory.
+
+            target_profile_path = Path(profile_directory).joinpath(id + ".json")
+
+            if target_profile_path.exists():
+                #profile under this name exists.
+
+                if not prompt_on_existing_profile:
+                    #do not prompt
+
+                    if not overwrite_profile_by_default:
+                        #append to profile by default
+                        profile = Profile.load_from_file(str(target_profile_path))
+                        profile.add_face_encoding(face_encoding)
+                        instantiated = True
+                    else:
+                        pass #default behaviour
+
+                else:
+                    ## prompt user to choose how to approach pre-existing profile 
+                    valid_inputs = ["1","2"]
+                    while True:
+                        u_input = input(f"""A profile at the location '{str(target_profile_path)}' already exists.\n1. append to\n2. ignore (this means existing profile will be overwritten if saving)\n> """)
+
+                        if u_input in valid_inputs:
+                            #valid input so break out of input loop
+                            break
+                        
+                        #clear the previous itteration of prints / inputs. (on invalid input)
+                        for _ in range(4):
+                            print("\033[1A",end="\x1b[2K")
+                    
+                    if u_input == "1":
+                        #append to
+                        profile = Profile.load_from_file(str(target_profile_path))
+                        profile.add_face_encoding(face_encoding)
+                        instantiated = True
+                    elif u_input == "2":
+                        #overwrite
+                        pass #default behaviour
+
+        if not instantiated:
+            #instantiate profile
+            profile = Profile(
+                id=id,
+                face_encodings=[face_encoding]
+            )
+
+        profiles.append(profile)
+        
+
+    if save_profiles == True:
+        #save generated profiles
+
+        #default save to dir to profile directory ( if provided )
+        save_to_path = profile_directory
+
+        if not save_to_path:
+            #ask user where to save profiles to if profile directory is not specified
+            while True:
+                u_path = input(
+                    "save profiles to:\n> ")
+                
+                if Path(u_path).is_dir():
+                    #valid input
+                    break
+                
+                #clear previous print itteration (on invalid input)
+                for _ in range(4):
+                    print("\033[1A",end="\x1b[2K")
+
+            #create directory if does not exist
+            Path(u_path).mkdir(parents=True,exist_ok=True)
+
+            save_to_path = str(Path(u_path))
+
+        for profile in profiles:
+            profile.save_to_file(directory=save_to_path)
+    
+    return profiles

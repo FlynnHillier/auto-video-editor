@@ -6,3 +6,5 @@ for full instructions see: [whisperx docs](https://github.com/m-bain/whisperX#se
 
 Further setup requirements may be found on the [whisper docs](https://github.com/openai/whisper#setup)
 
+(install opencv-python with pip?)
+

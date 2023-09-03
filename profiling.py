@@ -1,17 +1,21 @@
 """Identification of individuals"""
 from __future__ import annotations
+from typing import get_origin
 
 import face_recognition
 import json
 import numpy
 from pathlib import Path
+import glob
 
 from faces import get_all_faces
 import cv2
 
-from typing import Tuple
+from typing import Tuple, Dict
 from numpy.typing import NDArray
 
+
+#TODO add documentation to profile manager!
 
 
 ## Utility
@@ -261,6 +265,187 @@ class Profile:
             face_encodings=_list_list_to_NDArray_list(data["face_encodings"])
         )
     
+    def to_dict(self) -> dict:
+        return {
+            "id":self.id,
+            "add_face_encoding_default_tolerance":self.add_face_encoding_default_tolerance,
+            "face_encodings":self.face_encodings,
+        }
+    
+
+    
+
+
+## Errors
+
+class ProfileNotExistsError(BaseException):
+    """The target profile did not exist"""
+    pass
+
+
+class ProfileExistsError(BaseException):
+    """The target profile already exists"""
+    def __init__(self, profile_id:str) -> None:
+        super().__init__(f"profile with '{profile_id}' does not exist.")
+    pass
+
+
+
+
+class ProfilesManager:
+    profiles: Dict[str,Profile] = {}
+    profile_file_ext: str = ".profile.json" #include leading period e.g '.json' not 'json'
+    directory:str | None = None
+    
+    def __init__(self,
+        profiles:list[Profile] = []
+    ) -> None:
+        for profile in profiles:
+            self.add_profile(profile)
+        pass
+
+    def load_from_directory(self,directory:str) -> None:
+        profile_paths = self.validate_directory(directory)
+
+        for profile_path in profile_paths:
+            self.load_profile_from_file(profile_path,validate=False)
+
+
+    def load_profile_from_file(self,filepath:str,validate=True) -> None:
+        if validate:
+            self.validate_profile_file(filepath)
+        
+        profile = Profile.load_from_file(filepath)
+        self.add_profile(profile)
+
+
+    def save_to_directory(self,directory:str | None = None,update_default_dir: bool = True) -> None:
+        #create directory if does not exist
+        Path(directory).mkdir(parents=True,exist_ok=True)
+
+        for profile_key in self.profiles.keys():
+            profile = self.get_profile(profile_id=profile_key)
+            profile.save_to_file(directory=directory,filename=f"{profile_key}{self.profile_file_ext}")
+
+        if update_default_dir:
+            self.directory = directory
+        
+
+    @classmethod
+    def validate_directory(cls, directory,instantly_break_on_invalid:bool = False) -> list[str]:
+        if not Path(directory).exists():
+            raise FileNotFoundError(f"the path '{directory}' does not exist.")
+        
+        if not Path(directory).is_dir():
+            raise ValueError(f"the path '{directory}' does not point to a valid directory.")
+        
+        abs_dir_path = str(Path(directory).absolute())
+
+        profile_paths = glob.glob(abs_dir_path + "\*" + cls.profile_file_ext)
+
+
+        #attempt to validate paths
+        exceptions = []
+        for path in profile_paths:
+            try:
+                cls.validate_profile_file(path)
+            except Exception as e:
+                exceptions.append(e)
+                if instantly_break_on_invalid:
+                    break
+        
+        if len(exceptions) > 0:
+            #directory contains some invalid profiles
+            raise ValueError(f"The directory {directory} is invalid. The following exceptions were raised while attempting to validate the profiles contained within:[\n{', '.join(map(lambda e: str(e), exceptions))}\n]")
+
+        #directory is valid
+        return profile_paths
+    
+    @classmethod
+    def validate_profile_file(cls, profile_path:str) -> True:
+        #check specified path exists
+        if not Path(profile_path).exists():
+            raise FileNotFoundError(f"the profile path '{profile_path}' does not exist.")
+        
+        #check path does point to file
+        if not Path(profile_path).is_file():
+            raise ValueError(f"path specified does not point to a file: '{profile_path}'")
+        
+        #check file is of correct file extension
+        if not Path(profile_path).name.endswith(cls.profile_file_ext):
+            raise ValueError(f"invalid profile extension '{'.' + '.'.join(Path(profile_path).suffixes)}' expected {cls.profile_file_ext}")
+        
+        ## check contents of file
+
+        with open(profile_path,"r") as f:
+            data = json.load(f)
+
+        if not type(data) == dict:
+            raise ValueError(f"expected to load json at '{profile_path}' as type dict. Instead was loaded as type {type(data)} .")
+
+        key_type_map = {
+            "id":str,
+            "add_face_encoding_default_tolerance":float,
+            "face_encodings":list[list[float]]
+        }
+
+        missing_keys :list[str] = []
+        incorrect_type_keys:list[str] = []
+        
+        for key in key_type_map.keys():
+            if not key in data.keys():
+                #key is missing from json
+                missing_keys.append(key)
+            elif get_origin(data[key]) == key_type_map[key]: #this line can be improved, to allow for 'parametric typing' e.g list[str] instead of list
+                #key exists in json but is of invalid type
+                incorrect_type_keys.append(key)
+
+        if len(missing_keys) > 0 or len(incorrect_type_keys) > 0:
+            #something is incorrect within file
+            
+            ## construct error message
+            error_message : str = f"profile located at '{profile_path}' "
+            error_message_segments : list[str] = []
+
+            if len(missing_keys) > 0:
+                error_message_segments.append(f"contained missing keys : [ {', '.join(missing_keys)} ]")
+            
+            if len(incorrect_type_keys) > 0:
+                error_message_segments.append(f"contained invalid types for keys : [ {', '.join(incorrect_type_keys)} ]")
+
+            error_message += " and ".join(error_message_segments)
+
+            raise ValueError(error_message)
+
+        #filepath points to valid profile
+        return True
+
+
+    def add_profile(self,profile:Profile) -> bool:
+        if self.exists_profile(profile_id=profile.id):
+            raise ProfileExistsError(f"a profile with id '{profile.id}' already exists.")
+        
+        self.profiles[profile.id] = profile
+        return True
+
+    
+    def delete_profile(self,profile_id) -> bool:
+        popped = self.profiles.pop(profile_id,None)
+
+        return popped != None
+
+
+    def exists_profile(self,profile_id) -> bool:
+        return profile_id in self.profiles.keys()
+
+
+    def get_profile(self,profile_id:str) -> Profile:
+        if not self.exists_profile(profile_id):
+            raise ProfileNotExistsError(profile_id)
+
+        return self.profiles[profile_id]
+
+
 
 
 def build_profiles_from_video(

@@ -293,6 +293,7 @@ class ProfileExistsError(BaseException):
 
 
 class ProfilesManager:
+    """Allows for managements of multiple Profile classes."""
     profiles: Dict[str,Profile] = {}
     profile_file_ext: str = ".profile.json" #include leading period e.g '.json' not 'json'
     directory:str | None = None
@@ -305,6 +306,11 @@ class ProfilesManager:
         pass
 
     def load_from_directory(self,directory:str) -> None:
+        """load profiles from a specified directory
+
+        Args:
+            directory (str): the directory in which the profiles, that are intended to be loaded, are located.
+        """
         profile_paths = self.validate_directory(directory)
 
         for profile_path in profile_paths:
@@ -312,6 +318,12 @@ class ProfilesManager:
 
 
     def load_profile_from_file(self,filepath:str,validate=True) -> None:
+        """load a profile from the specified filepath
+
+        Args:
+            filepath (str): the path to the targetfile.
+            validate (bool, optional): If true will ensure that the target file is in the correct format beforea attempting to load. Defaults to True.
+        """
         if validate:
             self.validate_profile_file(filepath)
         
@@ -320,6 +332,15 @@ class ProfilesManager:
 
 
     def save_to_directory(self,directory:str | None = None,update_default_dir: bool = True) -> None:
+        """save all profiles to the specified directory.
+
+        Args:
+            directory (str | None, optional): the directory to store profiles within, if None use self.directory . Defaults to None.
+            update_default_dir (bool, optional): If true will update self.directory to the directory to which the profiles are save to. Defaults to True.
+        """
+        if directory == None:
+            directory = self.directory
+
         #create directory if does not exist
         Path(directory).mkdir(parents=True,exist_ok=True)
 
@@ -332,7 +353,21 @@ class ProfilesManager:
         
 
     @classmethod
-    def validate_directory(cls, directory,instantly_break_on_invalid:bool = False) -> list[str]:
+    def validate_directory(cls, directory:str,instantly_break_on_invalid:bool = False) -> list[str]:
+        """ensure the all profiles within the specified directory are in the correct format.
+
+        Args:
+            directory (str): _description_
+            instantly_break_on_invalid (bool, optional): _description_. Defaults to False.
+
+        Raises:
+            FileNotFoundError: _description_
+            ValueError: _description_
+            ValueError: _description_
+
+        Returns:
+            list[str]: _description_
+        """
         if not Path(directory).exists():
             raise FileNotFoundError(f"the path '{directory}' does not exist.")
         
@@ -363,6 +398,22 @@ class ProfilesManager:
     
     @classmethod
     def validate_profile_file(cls, profile_path:str) -> True:
+        """validate the profile located at the path specified.
+
+        Args:
+            profile_path (str): the filepath of the target profile.
+
+        Raises:
+            FileNotFoundError: The filepath specified did not exist.
+            ValueError: the path specified does not point to a file.
+            ValueError: the filepath's file extension is of an unexpected type.
+            ValueError: json format is incorrect (array instead of dict)
+            ValueError: some keys are missing or of an incorrect type.
+
+        Returns:
+            True: if validated successfully.
+        """
+
         #check specified path exists
         if not Path(profile_path).exists():
             raise FileNotFoundError(f"the profile path '{profile_path}' does not exist.")
@@ -421,7 +472,18 @@ class ProfilesManager:
         return True
 
 
-    def add_profile(self,profile:Profile) -> bool:
+    def add_profile(self,profile:Profile) -> True:
+        """add a profile to self.profiles dict.
+
+        Args:
+            profile (Profile): the profile to add.
+
+        Raises:
+            ProfileExistsError: a profile with the id specified within the passed profile already exists in the profile manager's self.profiles dict.
+
+        Returns:
+            True: if successfully added.
+        """
         if self.exists_profile(profile_id=profile.id):
             raise ProfileExistsError(f"a profile with id '{profile.id}' already exists.")
         
@@ -429,17 +491,44 @@ class ProfilesManager:
         return True
 
     
-    def delete_profile(self,profile_id) -> bool:
+    def delete_profile(self,profile_id:str) -> bool:
+        """delete the specified profile id from self.profiles
+
+        Args:
+            profile_id (str): the target profile id
+
+        Returns:
+            bool: True if removed, False if did not exist to remove.
+        """
         popped = self.profiles.pop(profile_id,None)
 
         return popped != None
 
 
-    def exists_profile(self,profile_id) -> bool:
+    def exists_profile(self,profile_id:str) -> bool:
+        """bool if profile by the specified id exists in self.profiles.
+
+        Args:
+            profile_id (str): the profile id
+
+        Returns:
+            bool: True if profile exists.
+        """
         return profile_id in self.profiles.keys()
 
 
     def get_profile(self,profile_id:str) -> Profile:
+        """get the profile from self.profiles with the id specified.
+
+        Args:
+            profile_id (str): the profile id
+
+        Raises:
+            ProfileNotExistsError: The profile with the id specified does not exist
+
+        Returns:
+            Profile: the fetched profile
+        """
         if not self.exists_profile(profile_id):
             raise ProfileNotExistsError(profile_id)
 

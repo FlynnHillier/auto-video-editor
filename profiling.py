@@ -172,15 +172,15 @@ class Profile:
             #default to profile id name
             filename = self.id
         
-        if not filename.endswith(".json"):
+        if not filename.endswith(".profile.json"):
             #append correct file extension
-            filename += ".json"
+            filename += ".profile.json"
 
         target_filepath = str(Path(directory).joinpath(filename))
 
         _dict = {
             "id":self.id,
-            "face_encoding_tolerance":self.add_face_encoding_default_tolerance,
+            "add_face_encoding_default_tolerance":self.add_face_encoding_default_tolerance,
             "face_encodings":_NDArray_list_to_list_list(self.face_encodings),
         }
 
@@ -593,7 +593,7 @@ def build_profiles_from_video(
         if profile_directory != None:
             #search for existing profile in specified profile directory.
 
-            target_profile_path = Path(profile_directory).joinpath(id + ".json")
+            target_profile_path = Path(profile_directory).joinpath(id + ".profile.json")
 
             if target_profile_path.exists():
                 #profile under this name exists.
